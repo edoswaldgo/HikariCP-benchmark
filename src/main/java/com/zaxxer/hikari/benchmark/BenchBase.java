@@ -21,6 +21,11 @@ import java.util.concurrent.TimeUnit;
 
 import javax.sql.DataSource;
 
+import oracle.ucp.admin.UniversalConnectionPoolManager;
+import oracle.ucp.admin.UniversalConnectionPoolManagerImpl;
+import oracle.ucp.jdbc.PoolDataSource;
+import oracle.ucp.jdbc.PoolDataSourceFactory;
+
 import org.apache.tomcat.jdbc.pool.PoolProperties;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
@@ -41,7 +46,7 @@ public class BenchBase
 {
     protected static final int MIN_POOL_SIZE = 0;
 
-    @Param({ "hikari", "bone", "tomcat", "c3p0", "vibur" })
+    @Param({ "hikari", "bone", "tomcat", "c3p0", "vibur", "ucp" })
     public String pool;
 
     @Param({ "32" })
@@ -83,6 +88,9 @@ public class BenchBase
         case "vibur":
             setupVibur();
             break;
+        case "ucp":
+            setupUCP();
+            break;
         }
     }
 
@@ -105,6 +113,24 @@ public class BenchBase
             break;
         case "vibur":
             ((ViburDBCPDataSource) DS).terminate();
+            break;
+        case "ucp":
+            try
+            {
+                final UniversalConnectionPoolManager ucpManager = UniversalConnectionPoolManagerImpl.getUniversalConnectionPoolManager();
+                if (ucpManager != null) {
+                    final String[] poolNames = ucpManager.getConnectionPoolNames();
+                    if (poolNames != null) {
+                        for (String poolName : poolNames) {
+                            ucpManager.destroyConnectionPool(poolName);
+                        }
+                    }
+                }
+            }
+            catch (final Exception e)
+            {
+                throw new RuntimeException(e);
+            }
             break;
         }
     }
@@ -212,5 +238,27 @@ public class BenchBase
         vibur.start();
 
         DS = vibur;
+    }
+    
+    private void setupUCP()
+    {
+        try
+        {
+            PoolDataSource  pds = PoolDataSourceFactory.getPoolDataSource();
+            pds.setConnectionFactoryClassName("com.zaxxer.hikari.benchmark.stubs.StubDataSource");
+            pds.setURL( "jdbc:stub" );
+            pds.setMinPoolSize(MIN_POOL_SIZE);
+            pds.setInitialPoolSize(MIN_POOL_SIZE);
+            pds.setMaxPoolSize(maxPoolSize);
+            pds.setConnectionWaitTimeout(8000);
+            pds.setValidateConnectionOnBorrow(true);
+            pds.setInactiveConnectionTimeout(30); 
+            
+            DS = pds;
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 }
